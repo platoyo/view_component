@@ -1423,4 +1423,9 @@ class RenderingTest < ViewComponent::TestCase
 
     assert_selector("div", text: I18n.t("rendering_test.i18n_test_component.message"))
   end
+
+  def test_render_lifecycle_hooks
+    component = setup_render(I18nTestComponent.new)
+    assert_equal(component.message, I18n.t("rendering_test.i18n_test_component.message"))
+  end
 end

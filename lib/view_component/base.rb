@@ -103,7 +103,15 @@ module ViewComponent
     # Returns HTML that has been escaped by the respective template handler.
     #
     # @return [String]
-    def render_in(view_context, **_, &block)
+    def render_in(view_context, &block)
+      setup_render(view_context, &block)
+      before_render
+      perform_render
+    ensure
+      teardown_render(view_context)
+    end
+
+    def setup_render(view_context, &block)
       self.class.__vc_compile(raise_errors: true)
 
       __vc_reset_render_state!
@@ -127,7 +135,7 @@ module ViewComponent
 
       # For caching, such as #cache_if
       @current_template = nil unless defined?(@current_template)
-      old_current_template = @current_template
+      @old_current_template = @current_template
 
       if block && defined?(@__vc_content_set_by_with_content)
         raise DuplicateContentError.new(self.class.name)
@@ -138,8 +146,11 @@ module ViewComponent
       @__vc_render_in_block = block
       @view_context.instance_variable_set(:@virtual_path, virtual_path)
 
-      before_render
+      @view_context.instance_variable_set(:@virtual_path, virtual_path)
+      self
+    end
 
+    def perform_render
       if render?
         value = nil
 
@@ -177,8 +188,11 @@ module ViewComponent
       else
         "".html_safe
       end
-    ensure
+    end
+
+    def teardown_render(view_context)
       view_context.instance_variable_set(:@virtual_path, @old_virtual_path)
+      old_current_template = remove_instance_variable(:@current_template) if defined?(@current_template)
       @current_template = old_current_template
     end
 
