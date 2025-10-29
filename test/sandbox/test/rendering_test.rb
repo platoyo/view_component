@@ -1323,6 +1323,11 @@ class RenderingTest < ViewComponent::TestCase
     assert_text "hello world", exact: true, normalize_ws: true
   end
 
+  def test_render_partial_with_yield_and_method_call
+    render_inline(PartialWithYieldAndMethodCallComponent.new)
+    assert_text "hello world", exact: true, normalize_ws: true
+  end
+
   class I18nTestComponent < ViewComponent::Base
     def message
       t(".message")

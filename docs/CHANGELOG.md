@@ -13,7 +13,9 @@ nav_order: 6
 * Allow I18n calls in `render?`.
 * Split render lifecycle into separate methods, to be able to test component methods that rely on `t(...)` directly.
 * Added `setup_render` test helper to allow testing of component methods that rely on `t(...)` without rendering the component.
+    *23tux*
 
+* Capture partial block in the components context
     *23tux*
 
 * Resolve deprecation warning for `ActiveSupport::Configurable`.
