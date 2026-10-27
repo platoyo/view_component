@@ -120,19 +120,21 @@ module ViewComponent
     #
     # @return [String]
     def render_in(view_context, &block)
-      cached_render = setup_render(view_context, &block)
+      setup_render(view_context, ignore_cache: false, &block)
+      if self.class.__vc_cache_output && !@__vc_cache_bypassed
+        return __vc_render_cached(view_context, block)
+      end
       before_render
-      return cached_render if cached_render != self
       perform_render
     ensure
       teardown_render(view_context)
     end
 
-    def setup_render(view_context, &block)
+    def setup_render(view_context, ignore_cache: true, &block)
       self.class.__vc_compile(raise_errors: true) unless self.class.__vc_compiled?
 
-      if self.class.__vc_cache_output && !@__vc_cache_bypassed
-        return __vc_render_cached(view_context, block)
+      if !ignore_cache && self.class.__vc_cache_output && !@__vc_cache_bypassed
+        return self
       end
 
       __vc_check_reused_instance!
