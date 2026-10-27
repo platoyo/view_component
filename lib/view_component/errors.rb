@@ -9,7 +9,7 @@ module ViewComponent
     MESSAGE =
       "It looks like a block was provided after calling `with_content` on COMPONENT, " \
       "which means that ViewComponent doesn't know which content to use.\n\n" \
-      "To fix this issue, use either `with_content` or a block."
+      "To fix this issue, use either `with_content` or a block.".freeze
 
     def initialize(klass_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s))
@@ -25,13 +25,13 @@ module ViewComponent
   end
 
   class MultipleInlineTemplatesError < BaseError
-    MESSAGE = "Inline templates can only be defined once per-component."
+    MESSAGE = "Inline templates can only be defined once per-component.".freeze
   end
 
   class MissingPreviewTemplateError < StandardError
     MESSAGE =
       "A preview template for example EXAMPLE doesn't exist.\n\n" \
-      "To fix this issue, create a template for the example."
+      "To fix this issue, create a template for the example.".freeze
 
     def initialize(example)
       super(MESSAGE.gsub("EXAMPLE", example))
@@ -41,7 +41,7 @@ module ViewComponent
   class MissingTemplateError < StandardError
     MESSAGE =
       "No templates for COMPONENT match the request DETAIL.\n\n" \
-      "To fix this issue, provide a suitable template."
+      "To fix this issue, provide a suitable template.".freeze
 
     def initialize(component, request_detail)
       detail = {
@@ -58,7 +58,7 @@ module ViewComponent
     MESSAGE =
       "It looks like a block was provided after calling `with_content` on COMPONENT, " \
       "which means that ViewComponent doesn't know which content to use.\n\n" \
-      "To fix this issue, use either `with_content` or a block."
+      "To fix this issue, use either `with_content` or a block.".freeze
 
     def initialize(klass_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s))
@@ -70,7 +70,7 @@ module ViewComponent
       "The initializer for COMPONENT doesn't accept the parameter `PARAMETER`, " \
       "which is required to render it as a collection.\n\n" \
       "To fix this issue, update the initializer to accept `PARAMETER`.\n\n" \
-      "See [the collections docs](https://viewcomponent.org/guide/collections.html) for more information on rendering collections."
+      "See [the collections docs](https://viewcomponent.org/guide/collections.html) for more information on rendering collections.".freeze
 
     def initialize(klass_name, parameter)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("PARAMETER", parameter.to_s))
@@ -80,7 +80,7 @@ module ViewComponent
   class ReservedParameterError < StandardError
     MESSAGE =
       "COMPONENT initializer can't accept the parameter `PARAMETER`, as it will override a " \
-      "public ViewComponent method. To fix this issue, rename the parameter."
+      "public ViewComponent method. To fix this issue, rename the parameter.".freeze
 
     def initialize(klass_name, parameter)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("PARAMETER", parameter.to_s))
@@ -90,14 +90,14 @@ module ViewComponent
   class InvalidCollectionArgumentError < BaseError
     MESSAGE =
       "The value of the first argument passed to `with_collection` isn't a valid collection. " \
-      "Make sure it responds to `to_ary`."
+      "Make sure it responds to `to_ary`.".freeze
   end
 
   class ContentSlotNameError < StandardError
     MESSAGE =
       "COMPONENT declares a slot named content, which is a reserved word in ViewComponent.\n\n" \
       "Content passed to a ViewComponent as a block is captured and assigned to the `content` accessor without having to create an explicit slot.\n\n" \
-      "To fix this issue, either use the `content` accessor directly or choose a different slot name."
+      "To fix this issue, either use the `content` accessor directly or choose a different slot name.".freeze
 
     def initialize(klass_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s))
@@ -107,7 +107,7 @@ module ViewComponent
   class InvalidSlotDefinitionError < BaseError
     MESSAGE =
       "Invalid slot definition. Please pass a class, " \
-      "string, or callable (that is proc, lambda, etc)"
+      "string, or callable (that is proc, lambda, etc)".freeze
   end
 
   class InvalidSlotNameError < StandardError
@@ -118,7 +118,7 @@ module ViewComponent
       "COMPONENT declares a slot named SLOT_NAME, which ends with a question mark.\n\n" \
       "This isn't allowed because the ViewComponent framework already provides predicate " \
       "methods ending in `?`.\n\n" \
-      "To fix this issue, choose a different name."
+      "To fix this issue, choose a different name.".freeze
 
     def initialize(klass_name, slot_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("SLOT_NAME", slot_name.to_s))
@@ -128,7 +128,7 @@ module ViewComponent
   class RedefinedSlotError < StandardError
     MESSAGE =
       "COMPONENT declares the SLOT_NAME slot multiple times.\n\n" \
-      "To fix this issue, choose a different slot name."
+      "To fix this issue, choose a different slot name.".freeze
 
     def initialize(klass_name, slot_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("SLOT_NAME", slot_name.to_s))
@@ -138,7 +138,7 @@ module ViewComponent
   class ReservedSingularSlotNameError < InvalidSlotNameError
     MESSAGE =
       "COMPONENT declares a slot named SLOT_NAME, which is a reserved word in the ViewComponent framework.\n\n" \
-      "To fix this issue, choose a different name."
+      "To fix this issue, choose a different name.".freeze
 
     def initialize(klass_name, slot_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("SLOT_NAME", slot_name.to_s))
@@ -148,7 +148,7 @@ module ViewComponent
   class ReservedPluralSlotNameError < InvalidSlotNameError
     MESSAGE =
       "COMPONENT declares a slot named SLOT_NAME, which is a reserved word in the ViewComponent framework.\n\n" \
-      "To fix this issue, choose a different name."
+      "To fix this issue, choose a different name.".freeze
 
     def initialize(klass_name, slot_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("SLOT_NAME", slot_name.to_s))
@@ -158,7 +158,7 @@ module ViewComponent
   class UncountableSlotNameError < InvalidSlotNameError
     MESSAGE =
       "COMPONENT declares a slot named SLOT_NAME, which is an uncountable word\n\n" \
-      "To fix this issue, choose a different name."
+      "To fix this issue, choose a different name.".freeze
 
     def initialize(klass_name, slot_name)
       super(MESSAGE.gsub("COMPONENT", klass_name.to_s).gsub("SLOT_NAME", slot_name.to_s))
@@ -166,7 +166,7 @@ module ViewComponent
   end
 
   class ContentAlreadySetForPolymorphicSlotError < StandardError
-    MESSAGE = "Content for slot SLOT_NAME has already been provided."
+    MESSAGE = "Content for slot SLOT_NAME has already been provided.".freeze
 
     def initialize(slot_name)
       super(MESSAGE.gsub("SLOT_NAME", slot_name.to_s))
@@ -176,7 +176,20 @@ module ViewComponent
   class NilWithContentError < BaseError
     MESSAGE =
       "No content provided to `#with_content` for #{self}.\n\n" \
-      "To fix this issue, pass a value."
+      "To fix this issue, pass a value.".freeze
+  end
+
+  class ReusedInstanceError < StandardError
+    MESSAGE =
+      "ViewComponent instances are single-use; a COMPONENT instance was rendered more than once.\n\n" \
+      "Reusing a component instance across renders can leak request-scoped state " \
+      "(controller, helpers, request, view_flow, slot content, `with_content`) from an earlier render " \
+      "into a later one, which has security and correctness implications (GHSA-8qw7-6phv-7q6p).\n\n" \
+      "To fix this issue, create a new component instance per render.".freeze
+
+    def initialize(klass_name)
+      super(MESSAGE.gsub("COMPONENT", klass_name.to_s))
+    end
   end
 
   class TranslateCalledBeforeRenderError < BaseError
@@ -185,7 +198,7 @@ module ViewComponent
       "on the view context that only exists once a ViewComponent is passed to " \
       "the Rails render pipeline.\n\n" \
       "It's sometimes possible to fix this issue by moving code dependent on " \
-      "`#translate` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void)."
+      "`#translate` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void).".freeze
   end
 
   class HelpersCalledBeforeRenderError < BaseError
@@ -194,7 +207,7 @@ module ViewComponent
       "on the view context that only exists once a ViewComponent is passed to " \
       "the Rails render pipeline.\n\n" \
       "It's sometimes possible to fix this issue by moving code dependent on " \
-      "`#helpers` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void)."
+      "`#helpers` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void).".freeze
   end
 
   class ControllerCalledBeforeRenderError < BaseError
@@ -203,20 +216,55 @@ module ViewComponent
       "on the view context that only exists once a ViewComponent is passed to " \
       "the Rails render pipeline.\n\n" \
       "It's sometimes possible to fix this issue by moving code dependent on " \
-      "`#controller` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void)."
+      "`#controller` to a [`#before_render` method](https://viewcomponent.org/api.html#before_render--void).".freeze
   end
 
   class SystemTestControllerNefariousPathError < BaseError
-    MESSAGE = "ViewComponent SystemTest controller attempted to load a file outside of the expected directory."
+    MESSAGE = "ViewComponent SystemTest controller attempted to load a file outside of the expected directory.".freeze
   end
 
   class AlreadyDefinedPolymorphicSlotSetterError < StandardError
     MESSAGE =
       "A method called 'SETTER_METHOD_NAME' already exists and would be overwritten by the 'SETTER_NAME' polymorphic " \
-      "slot setter.\n\nPlease choose a different setter name."
+      "slot setter.\n\nPlease choose a different setter name.".freeze
 
     def initialize(setter_method_name, setter_name)
       super(MESSAGE.gsub("SETTER_METHOD_NAME", setter_method_name.to_s).gsub("SETTER_NAME", setter_name.to_s))
+    end
+  end
+
+  class CacheDigestTemplateError < StandardError
+    MESSAGE =
+      "The synthetic cache digest template for COMPONENT was rendered.\n\n" \
+      "This template exists only so Rails can compute a cache digest for the " \
+      "component and is never meant to be rendered. Render the component " \
+      "itself instead.".freeze
+
+    def initialize(component_name)
+      super(MESSAGE.gsub("COMPONENT", component_name.to_s))
+    end
+  end
+
+  class UndefinedCacheKeyMethodError < StandardError
+    MESSAGE =
+      "`cache_on` declared `METHOD` on COMPONENT, but no such method is defined.\n\n" \
+      "To fix this issue, define `METHOD` or remove it from `cache_on`.".freeze
+
+    def initialize(component_name, method_name)
+      super(MESSAGE.gsub("COMPONENT", component_name.to_s).gsub("METHOD", method_name.to_s))
+    end
+  end
+
+  class ContentPassedToCachedComponentError < StandardError
+    MESSAGE =
+      "COMPONENT declares `cache_on`, so it caches its own output, but its caller passed it content.\n\n" \
+      "Content and slots set by the caller aren't part of the cache key, so caching them would risk " \
+      "serving one caller's content to another.\n\n" \
+      "To fix this issue, either remove `cache_on` from COMPONENT, or move the content into the " \
+      "component and derive it from the values declared in `cache_on`.".freeze
+
+    def initialize(component_name)
+      super(MESSAGE.gsub("COMPONENT", component_name.to_s))
     end
   end
 end

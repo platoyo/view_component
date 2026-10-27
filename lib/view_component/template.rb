@@ -28,33 +28,7 @@ module ViewComponent
           details = ActionView::TemplateDetails.new(details.locale, details.handler, DEFAULT_FORMAT, details.variant)
         end
 
-        @strip_annotation_line = false
-
-        # Rails 8.1 added a newline to compiled ERB output (rails/rails#53731).
-        # Use -1 to compensate for correct line numbers in stack traces.
-        # However, negative line numbers cause segfaults when Ruby's coverage
-        # is enabled (bugs.ruby-lang.org/issues/19363). In that case, strip the
-        # annotation line from compiled source instead.
-        lineno =
-          if Rails::VERSION::MAJOR >= 8 && Rails::VERSION::MINOR > 0 && details.handler == :erb
-            if coverage_running?
-              # Can't use negative lineno with coverage (causes segfault on Linux).
-              # Strip annotation line if enabled to preserve correct line numbers.
-              @strip_annotation_line = ActionView::Base.annotate_rendered_view_with_filenames
-              0
-            else
-              -1
-            end
-          else
-            0
-          end
-
-        super(
-          component: component,
-          details: details,
-          path: path,
-          lineno: lineno
-        )
+        super
       end
 
       def type
@@ -68,11 +42,30 @@ module ViewComponent
 
       private
 
+      # Rails 8.1 added a newline to compiled ERB output (rails/rails#53731).
+      # Use -1 to compensate for correct line numbers in stack traces.
+      # However, negative line numbers cause segfaults when Ruby's coverage
+      # is enabled (bugs.ruby-lang.org/issues/19363). In that case, strip the
+      # annotation line from compiled source instead.
+      #
+      # Computed at compile time rather than at initialization because both
+      # coverage and annotation settings can change between the two.
+      def lineno
+        return 0 unless erb_newline_compensation_needed?
+
+        # Can't use negative lineno with coverage (causes segfault on Linux).
+        coverage_running? ? 0 : -1
+      end
+
+      # Strip the annotation line to maintain correct line numbers when coverage
+      # is running (avoids segfault from negative lineno)
+      def strip_annotation_line?
+        erb_newline_compensation_needed? && coverage_running?
+      end
+
       def compiled_source
         result = super
-        # Strip the annotation line to maintain correct line numbers when coverage
-        # is running (avoids segfault from negative lineno)
-        result = result.partition(";").last if @strip_annotation_line
+        result = result.partition(";").last if strip_annotation_line?
         result
       end
     end
@@ -83,22 +76,11 @@ module ViewComponent
       def initialize(component:, inline_template:)
         details = ActionView::TemplateDetails.new(nil, inline_template.language.to_sym, nil, nil)
 
-        # Rails 8.1 added a newline to compiled ERB output (rails/rails#53731).
-        # Subtract 1 to compensate for correct line numbers in stack traces.
-        # Inline templates start at line 2+ (defined inside a class), so this
-        # won't result in negative line numbers that cause segfaults with coverage.
-        lineno =
-          if Rails::VERSION::MAJOR >= 8 && Rails::VERSION::MINOR > 0 && details.handler == :erb
-            inline_template.lineno - 1
-          else
-            inline_template.lineno
-          end
-
         super(
           component: component,
           details: details,
           path: inline_template.path,
-          lineno: lineno,
+          lineno: inline_template.lineno,
         )
 
         @source = inline_template.source.dup
@@ -106,6 +88,19 @@ module ViewComponent
 
       def type
         :inline
+      end
+
+      private
+
+      # Rails 8.1 added a newline to compiled ERB output (rails/rails#53731).
+      # Subtract 1 to compensate for correct line numbers in stack traces.
+      # Inline templates start at line 2+ (defined inside a class), so this
+      # won't result in negative line numbers that cause segfaults with coverage.
+      #
+      # Computed at compile time rather than at initialization because the
+      # annotation setting can change between the two.
+      def lineno
+        erb_newline_compensation_needed? ? super - 1 : super
       end
     end
 
@@ -128,14 +123,13 @@ module ViewComponent
         @component.define_method(safe_method_name, @component.instance_method(@call_method_name))
       end
 
-      def safe_method_name_call
-        m = safe_method_name
-        proc do
-          __vc_maybe_escape_html(send(m)) do
-            Kernel.warn("WARNING: The #{self.class} component rendered HTML-unsafe output. " \
+      def safe_method_call
+        <<~RUBY
+          __vc_maybe_escape_html(#{super}) do
+            Kernel.warn("WARNING: The \#{self.class} component rendered HTML-unsafe output. " \
                           "The output will be automatically escaped, but you may want to investigate.")
           end
-        end
+        RUBY
       end
 
       def defined_on_self?
@@ -147,7 +141,7 @@ module ViewComponent
       @component.silence_redefinition_of_method(call_method_name)
 
       # rubocop:disable Style/EvalWithLocation
-      @component.class_eval <<~RUBY, @path, @lineno
+      @component.class_eval <<~RUBY, @path, lineno
         def #{call_method_name}
           #{compiled_source}
         end
@@ -161,9 +155,13 @@ module ViewComponent
       defined?(Coverage) && Coverage.running?
     end
 
-    def safe_method_name_call
-      m = safe_method_name
-      proc { send(m) }
+    def safe_method_call
+      method_name = safe_method_name
+      if /\A[a-zA-Z_]\w*[!?]?\z/.match?(method_name)
+        method_name
+      else
+        "send(#{method_name.to_sym.inspect})"
+      end
     end
 
     def requires_compiled_superclass?
@@ -195,16 +193,34 @@ module ViewComponent
 
     private
 
+    attr_reader :lineno
+
+    def erb_newline_compensation_needed?
+      Rails::VERSION::MAJOR >= 8 && Rails::VERSION::MINOR > 0 &&
+        details.handler == :erb &&
+        annotated?
+    end
+
+    # The newline compensated for lives inside the `<!-- BEGIN ... -->`
+    # annotation, which Rails only prepends to HTML templates, and only when
+    # annotations are enabled. Compensating outside those conditions shifts
+    # backtraces by a line and, under coverage, strips real template source.
+    def annotated?
+      ActionView::Base.annotate_rendered_view_with_filenames && html?
+    end
+
     def compiled_source
       handler = details.handler_class
-      this_source = source
-      this_source.rstrip! if @component.strip_trailing_whitespace?
+      original_source = source
+      this_source = @component.strip_trailing_whitespace? ? original_source.rstrip : original_source
 
       short_identifier = defined?(Rails.root) ? @path.sub("#{Rails.root}/", "") : @path
       format = self.format || DEFAULT_FORMAT
       type = ActionView::Template::Types[format]
 
-      handler.call(DataWithSource.new(format:, identifier: @path, short_identifier:, type:), this_source)
+      handler.call(DataWithSource.new(format:, identifier: @path, short_identifier:, type:), this_source).tap do |compiled|
+        CacheDigest.compiled(handler, original_source, compiled)
+      end
     end
   end
 end

@@ -13,43 +13,6 @@ class RenderingTest < ViewComponent::TestCase
     assert_selector("div", text: "hello,world!")
   end
 
-  def test_render_inline_allocations
-    # Stabilize compilation status ahead of testing allocations to simulate rendering
-    # performance with compiled component
-    ViewComponent::CompileCache.cache.delete(MyComponent)
-    MyComponent.__vc_ensure_compiled
-
-    with_instrumentation_enabled_option(false) do
-      assert_allocations({"4.1" => 69..160, "4.0" => 69..161, "3.4" => 75..76, "3.3" => 77..79, "3.2" => 80..82}) do
-        render_inline(MyComponent.new)
-      end
-    end
-
-    assert_selector("div", text: "hello,world!")
-  end
-
-  def test_render_collection_inline_allocations
-    # Stabilize compilation status ahead of testing allocations to simulate rendering
-    # performance with compiled component
-    ViewComponent::CompileCache.cache.delete(ProductComponent)
-    ProductComponent.__vc_ensure_compiled
-
-    allocations = {"4.1" => 71..170, "4.0" => 71..170, "3.4" => 86..89, "3.3" => 92..97, "3.2" => 97..101}
-
-    products = [Product.new(name: "Radio clock"), Product.new(name: "Mints")]
-    notice = "On sale"
-    # Ensure any one-time allocations are done
-    render_inline(ProductComponent.with_collection(products, notice: notice))
-
-    with_instrumentation_enabled_option(false) do
-      assert_allocations(**allocations) do
-        render_inline(ProductComponent.with_collection(products, notice: notice))
-      end
-    end
-
-    assert_selector("h1", text: "Product", count: 2)
-  end
-
   def test_initialize_super
     render_inline(InitializeSuperComponent.new)
 
@@ -378,19 +341,23 @@ class RenderingTest < ViewComponent::TestCase
   end
 
   def test_renders_component_with_asset_url
-    component = AssetComponent.new
-    assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(component).text)
+    assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(AssetComponent.new).text)
 
     if Rails.version.to_f < 8.0
       # Propshaft doesn't allow setting custom hosts so this only works in Rails < 8
-      component.config.asset_host = nil
-      assert_match(%r{/assets/application-\w+\.css}, render_inline(component).text)
+      original_asset_host = ActionController::Base.asset_host
+      begin
+        ActionController::Base.asset_host = nil
+        assert_match(%r{/assets/application-\w+\.css}, render_inline(AssetComponent.new).text)
 
-      component.config.asset_host = "http://assets.example.com"
-      assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(component).text)
+        ActionController::Base.asset_host = "http://assets.example.com"
+        assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(AssetComponent.new).text)
 
-      component.config.asset_host = "assets.example.com"
-      assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(component).text)
+        ActionController::Base.asset_host = "assets.example.com"
+        assert_match(%r{http://assets\.example\.com/assets/application-\w+\.css}, render_inline(AssetComponent.new).text)
+      ensure
+        ActionController::Base.asset_host = original_asset_host
+      end
     end
   end
 
@@ -614,7 +581,7 @@ class RenderingTest < ViewComponent::TestCase
 
     assert_includes(
       error.message,
-      "Colliding templates 'mini-watch' and 'mini__watch' found in VariantTemplatesCollisionComponent." \
+      "Colliding templates 'mini-watch' and 'mini__watch' found in VariantTemplatesCollisionComponent."
     )
   end
 

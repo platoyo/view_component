@@ -89,6 +89,19 @@ Specify one of the supported versions listed in [Appraisals](https://github.com/
 bundle exec appraisal rails-8.0 rake
 ```
 
+### Performance
+
+CI compares each pull request against its base branch on Rails 8.1 and Rails main. For each scenario in `performance/measure.rb`, it divides the component render time by the render time of an equivalent partial. It also boots a production app with 300 generated ERB components and 300 generated Slim components, each rendering another component, and divides the time spent in ViewComponent (requiring it, loading components, and compiling them) by the rest of boot. It fails if any ratio is more than 5% higher than the base branch's ratio.
+
+To run the comparison locally:
+
+```command
+git worktree add tmp/base main
+VIEW_COMPONENT_LIB=tmp/base/lib bundle exec ruby performance/measure.rb tmp/performance/base.json
+bundle exec ruby performance/measure.rb tmp/performance/head.json
+bundle exec ruby performance/compare.rb tmp/performance/base.json tmp/performance/head.json
+```
+
 ## Documentation
 
 ### Previewing changes locally
@@ -113,7 +126,26 @@ To run the Vale prose linter locally, `brew install vale` and `vale docs/`.
 
 ## Releasing
 
-`./script/release`
+Releases are automated using GitHub Actions. Here's the process:
+
+1. Go to **Actions** → **Release** → **Run workflow**
+2. Enter the new version numbers (current values are pre-filled):
+   - **major**: Major version number
+   - **minor**: Minor version number
+   - **patch**: Patch version number
+   - **pre**: Optional pre-release label (leave blank for stable release)
+3. Click **Run workflow**
+4. The workflow will:
+   - Create a release branch
+   - Update version files and changelog
+   - Update dependencies
+   - Open a pull request
+5. Review and merge the pull request to main
+6. After merge, the workflow automatically:
+   - Publishes docs to gh-pages
+   - Creates a GitHub release
+   - Pushes the tag to trigger gem publishing
+7. The gem is published to RubyGems automatically via GitHub Actions (requires approval from a maintainer in the "release" environment)
 
 ## Governance
 
@@ -141,4 +173,4 @@ ViewComponent maintainers have `admin` access, enabling them to manage repositor
 
 Committers are welcome to request maintainership access by opening a pull request to update this list:
 
-The maintainers team is @boardfish, @spone, @camertron, @blakewilliams, and @joelhawksley.
+The maintainers team is @finalburn, @spone, @camertron, @blakewilliams, and @joelhawksley.

@@ -99,6 +99,49 @@ class InlineErbTest < ViewComponent::TestCase
     ERB
   end
 
+  class TemplateIdentityComponent < ViewComponent::Base
+    erb_template "<%= current_template.virtual_path %>"
+  end
+
+  class TemplateIdentityChildComponent < TemplateIdentityComponent
+    erb_template "<%= current_template.virtual_path %>|<% render_parent %>"
+  end
+
+  class UnusualVariantComponent < ViewComponent::Base
+    def call
+      "default".html_safe
+    end
+
+    define_method(:call_odd?) { "odd".html_safe }
+  end
+
+  test "dispatch supports variant method names that are not Ruby identifiers" do
+    with_variant :odd? do
+      render_inline(UnusualVariantComponent.new)
+    end
+
+    assert_text "odd"
+  end
+
+  test "parent dispatch keeps its own template metadata" do
+    without_template_annotations do
+      render_inline(TemplateIdentityChildComponent.new)
+    end
+
+    assert_text "#{TemplateIdentityChildComponent.virtual_path}|#{TemplateIdentityComponent.virtual_path}", exact: true
+  end
+
+  test "forced compilation keeps template metadata local to each component" do
+    TemplateIdentityComponent.__vc_compile(force: true)
+    TemplateIdentityChildComponent.__vc_compile(force: true)
+
+    without_template_annotations do
+      render_inline(TemplateIdentityChildComponent.new)
+    end
+
+    assert_text "#{TemplateIdentityChildComponent.virtual_path}|#{TemplateIdentityComponent.virtual_path}", exact: true
+  end
+
   test "renders inline templates" do
     render_inline(InlineErbComponent.new("Fox Mulder"))
 
@@ -114,6 +157,17 @@ class InlineErbTest < ViewComponent::TestCase
   test "error backtrace locations work" do
     error = assert_raises ArgumentError do
       render_inline(InlineRaiseErbComponent.new("Fox Mulder"))
+    end
+
+    assert_match %r{test/sandbox/test/inline_template_test.rb:22}, error.backtrace[0]
+  end
+
+  test "error backtrace locations work when template annotations are disabled" do
+    error = nil
+
+    without_template_annotations do
+      InlineRaiseErbComponent.__vc_compile(force: true)
+      error = assert_raises(ArgumentError) { render_inline(InlineRaiseErbComponent.new("Fox Mulder")) }
     end
 
     assert_match %r{test/sandbox/test/inline_template_test.rb:22}, error.backtrace[0]

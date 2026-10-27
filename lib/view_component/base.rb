@@ -3,10 +3,12 @@
 require "action_view"
 require "action_view/base"
 require "view_component/collection"
+require "view_component/cache_digest"
 require "view_component/compile_cache"
 require "view_component/compiler"
 require "view_component/config"
 require "view_component/errors"
+require "view_component/cacheable"
 require "view_component/inline_template"
 require "view_component/preview"
 require "view_component/request_details"
@@ -31,6 +33,20 @@ end
 module ViewComponent
   class Base
     class << self
+      # A digest of the component's source, ancestors, and rendered dependencies.
+      #
+      # @param finder [ActionView::LookupContext, nil]
+      # @param format [Symbol]
+      #
+      # @return [String]
+      def cache_digest(finder: nil, format: :html)
+        ViewComponent::CacheDigest.digest(
+          self,
+          finder: finder || ViewComponent::CacheDigest.default_finder,
+          format: format
+        )
+      end
+
       delegate(*ViewComponent::Config.defaults.keys, to: :config)
 
       # Returns the current config.
@@ -104,16 +120,22 @@ module ViewComponent
     #
     # @return [String]
     def render_in(view_context, &block)
-      setup_render(view_context, &block)
+      cached_render = setup_render(view_context, &block)
       before_render
+      return cached_render if cached_render != self
       perform_render
     ensure
       teardown_render(view_context)
     end
 
     def setup_render(view_context, &block)
-      self.class.__vc_compile(raise_errors: true)
+      self.class.__vc_compile(raise_errors: true) unless self.class.__vc_compiled?
 
+      if self.class.__vc_cache_output && !@__vc_cache_bypassed
+        return __vc_render_cached(view_context, block)
+      end
+
+      __vc_check_reused_instance!
       __vc_reset_render_state!
 
       @view_context = view_context
@@ -194,6 +216,7 @@ module ViewComponent
       view_context.instance_variable_set(:@virtual_path, @old_virtual_path)
       old_current_template = remove_instance_variable(:@current_template) if defined?(@current_template)
       @current_template = old_current_template
+      @__vc_rendered = true
     end
 
     # Subclass components that call `super` inside their template code will cause a
@@ -435,6 +458,21 @@ module ViewComponent
       @view_context.instance_variable_set(:@virtual_path, old_virtual_path)
     end
 
+    # Use the component's source digest for fragments inside its own template.
+    #
+    # @private
+    def digest_path_from_template(template)
+      component_path = self.class.virtual_path
+      return super unless component_path && template.virtual_path == component_path
+
+      digest = self.class.cache_digest(
+        finder: lookup_context,
+        format: template.format || lookup_context.formats.first || :html
+      )
+
+      digest.present? ? "#{component_path}:#{digest}" : component_path
+    end
+
     private
 
     attr_reader :view_context
@@ -482,15 +520,30 @@ module ViewComponent
     # state from a previous render. Slot state (`@__vc_set_slots`,
     # `@__vc_content_set_by_with_content`) is intentionally preserved because it
     # is populated by callers _before_ `render_in` runs (e.g. via `with_*`
-    # slot setters or `with_content`).
+    # slot setters or `with_content`); reuse of an instance that has slot or
+    # `with_content` state is guarded against separately by
+    # `__vc_check_reused_instance!`.
+    RENDER_STATE_IVARS = %i[
+      @__vc_controller
+      @__vc_helpers
+      @__vc_request
+    ].freeze
+
     def __vc_reset_render_state!
-      %i[
-        @__vc_controller
-        @__vc_helpers
-        @__vc_request
-      ].each do |ivar|
+      RENDER_STATE_IVARS.each do |ivar|
         remove_instance_variable(ivar) if instance_variable_defined?(ivar)
       end
+    end
+
+    # Raises when a component instance is rendered more than once.
+    # Reusing a component instance across renders can leak request-scoped state
+    # (controller, helpers, request, view_flow, slot content, `with_content`)
+    # from an earlier render into a later one. See
+    # `ViewComponent::ReusedInstanceError` and GHSA-8qw7-6phv-7q6p.
+    def __vc_check_reused_instance!
+      return unless defined?(@__vc_rendered) && @__vc_rendered
+
+      raise ReusedInstanceError.new(self.class.name)
     end
 
     # Configuration for generators.
@@ -586,7 +639,10 @@ module ViewComponent
         return [] unless identifier
         return [] unless name
 
-        extensions = extensions.join(",")
+        # One glob per directory, filtered by extension, rather than a brace
+        # pattern per extension: Dir expands braces into one directory listing
+        # per extension.
+        extensions = extensions.map(&:to_s)
 
         # view files in a directory named like the component
         directory = File.dirname(identifier)
@@ -605,17 +661,27 @@ module ViewComponent
         # Without this, `MyOtherComponent` will not look for `my_component/my_other_component.html.erb`
         nested_component_files =
           if name.include?("::") && component_name != filename
-            Dir["#{directory}/#{filename}/#{component_name}.*{#{extensions}}"]
+            __vc_files_ending_with(extensions, "#{directory}/#{filename}/#{component_name}.*")
           else
             []
           end
 
         # view files in the same directory as the component
-        sidecar_files = Dir["#{directory}/#{component_name}.*{#{extensions}}"]
+        sidecar_files = __vc_files_ending_with(extensions, "#{directory}/#{component_name}.*")
 
-        sidecar_directory_files = Dir["#{directory}/#{component_name}/#{filename}.*{#{extensions}}"]
+        sidecar_directory_files = __vc_files_ending_with(extensions, "#{directory}/#{component_name}/#{filename}.*")
 
         (sidecar_files - [identifier] + sidecar_directory_files + nested_component_files).uniq
+      end
+
+      # `sidecar_files`, looked up once per component while eager loading:
+      # every component looks up its superclasses' templates and translations
+      # too, when it compiles, loads its translations, and computes its cache
+      # digest.
+      #
+      # @private
+      def __vc_sidecar_files(extensions)
+        CompileCache.sidecar_files_for(self, extensions) { sidecar_files(extensions) }
       end
 
       # Render a component for each element in a collection ([documentation](/guide/collections)):
@@ -628,7 +694,7 @@ module ViewComponent
       # @param spacer_component [ViewComponent::Base] Component instance to be rendered between items.
       # @param args [Arguments] Arguments to pass to the ViewComponent every time.
       def with_collection(collection, spacer_component: nil, **args)
-        Collection.new(self, collection, spacer_component, **args)
+        Collection.new(self, collection, spacer_component, args)
       end
 
       # @private
@@ -665,6 +731,7 @@ module ViewComponent
         # owner is included in a prefix like `ApplicationComponent.inherited`.
         child.identifier = caller_locations(1, 10).reject { |l| l.base_label == "inherited" }[0].path
         child.virtual_path = child.name&.underscore
+        ViewComponent::CacheDigest.register(child)
 
         # Set collection parameter to the extended component
         child.with_collection_parameter(__vc_provided_collection_parameter)
@@ -704,6 +771,17 @@ module ViewComponent
         @__vc_compiler ||= Compiler.new(self)
       end
 
+      # Synthetic digest source computed at boot. Not inherited, since each
+      # component's source differs.
+      #
+      # @private
+      attr_accessor :__vc_cache_digest_source
+
+      # @private
+      def __vc_template_formats
+        __vc_compiler.template_formats
+      end
+
       # Set the parameter name used when rendering elements of a collection ([documentation](/guide/collections)):
       #
       # ```ruby
@@ -713,7 +791,7 @@ module ViewComponent
       # @param parameter [Symbol] The parameter name used when rendering elements of a collection.
       def with_collection_parameter(parameter)
         @__vc_provided_collection_parameter = parameter
-        @__vc_initialize_parameters = nil
+        @__vc_collection_arguments = nil
       end
 
       # Strips trailing whitespace from templates before compiling them.
@@ -743,10 +821,14 @@ module ViewComponent
       # rendering is optional.
       # @private
       def __vc_validate_collection_parameter!(validate_default: false)
-        parameter = validate_default ? __vc_collection_parameter : __vc_provided_collection_parameter
+        if validate_default
+          return if __vc_collection_arguments[:parameter_accepted]
 
-        return unless parameter
-        return if __vc_initialize_parameter_names.include?(parameter) || __vc_splatted_keyword_argument_present?
+          raise MissingCollectionArgumentError.new(name, __vc_collection_parameter)
+        end
+
+        parameter = __vc_provided_collection_parameter
+        return if __vc_collection_parameter_accepted?(parameter)
 
         raise MissingCollectionArgumentError.new(name, parameter)
       end
@@ -763,52 +845,99 @@ module ViewComponent
 
       # @private
       def __vc_collection_parameter
-        @__vc_provided_collection_parameter ||= name && name.demodulize.underscore.chomp("_component").to_sym
+        __vc_collection_arguments[:parameter]
       end
 
       # @private
       def __vc_collection_counter_parameter
-        @__vc_collection_counter_parameter ||= :"#{__vc_collection_parameter}_counter"
+        __vc_collection_arguments[:counter_parameter]
       end
 
       # @private
       def __vc_counter_argument_present?
-        __vc_initialize_parameter_names.include?(__vc_collection_counter_parameter)
+        __vc_collection_arguments[:counter]
       end
 
       # @private
       def __vc_collection_iteration_parameter
-        @__vc_collection_iteration_parameter ||= :"#{__vc_collection_parameter}_iteration"
+        __vc_collection_arguments[:iteration_parameter]
       end
 
       # @private
       def __vc_iteration_argument_present?
-        __vc_initialize_parameter_names.include?(__vc_collection_iteration_parameter)
+        __vc_collection_arguments[:iteration]
+      end
+
+      # @private
+      def __vc_build_collection_arguments
+        names =
+          if respond_to?(:attribute_names)
+            attribute_names.map(&:to_sym)
+          else
+            __vc_initialize_signatures.flat_map { |_owner, parameters| parameters.map(&:last) }
+          end
+        parameter = __vc_provided_collection_parameter || (name && name.demodulize.underscore.chomp("_component").to_sym)
+        counter_parameter = :"#{parameter}_counter"
+        iteration_parameter = :"#{parameter}_iteration"
+
+        @__vc_collection_arguments = Ractor.make_shareable(
+          {
+            initialize_parameter_names: names,
+            parameter: parameter,
+            parameter_accepted: parameter.nil? || names.include?(parameter) || __vc_splatted_keyword_argument_present?,
+            counter_parameter: counter_parameter,
+            counter: names.include?(counter_parameter),
+            iteration_parameter: iteration_parameter,
+            iteration: names.include?(iteration_parameter)
+          }
+        )
       end
 
       private
 
+      def __vc_collection_arguments
+        @__vc_collection_arguments || __vc_build_collection_arguments
+      end
+
+      def __vc_collection_parameter_accepted?(parameter)
+        parameter.nil? || __vc_initialize_parameter_names.include?(parameter) || __vc_splatted_keyword_argument_present?
+      end
+
       def __vc_splatted_keyword_argument_present?
-        __vc_initialize_parameters.flatten.include?(:keyrest)
+        prepended_modules = ancestors.grep(Class).flat_map { |klass| klass.ancestors.take_while { |mod| mod != klass } }
+
+        __vc_initialize_signatures.any? do |owner, parameters|
+          parameters.any? do |type, name|
+            type == :keyrest && (name != :** || !prepended_modules.include?(owner))
+          end
+        end
       end
 
       def __vc_initialize_parameter_names
-        @__vc_initialize_parameter_names ||=
-          if respond_to?(:attribute_names)
-            attribute_names.map(&:to_sym)
-          else
-            __vc_initialize_parameters.map(&:last)
-          end
+        __vc_collection_arguments[:initialize_parameter_names]
       end
 
-      def __vc_initialize_parameters
-        @__vc_initialize_parameters ||= instance_method(:initialize).parameters
+      def __vc_initialize_signatures
+        signatures = []
+        method = instance_method(:initialize)
+        while method
+          signatures << [method.owner, method.parameters]
+          break unless method.parameters.any? { |type, _| type == :keyrest }
+
+          method = method.super_method
+        end
+        signatures
       end
 
-      def __vc_provided_collection_parameter
-        @__vc_provided_collection_parameter ||= nil
+      def __vc_files_ending_with(extensions, pattern)
+        paths = Dir[pattern]
+        extensions.flat_map { |extension| paths.select { |path| path.end_with?(extension) } }
       end
+
+      attr_reader :__vc_provided_collection_parameter
     end
+
+    include ViewComponent::Cacheable
 
     ActiveSupport.run_load_hooks(:view_component, self)
   end

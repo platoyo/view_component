@@ -44,12 +44,15 @@ module Sandbox
 
     # Prepare test_set_no_duplicate_autoload_paths
     config.autoload_paths.push("#{config.root}/my/components/previews")
+    config.autoload_paths.push("#{config.root}/test/fixtures")
     config.view_component.previews.paths << "#{config.root}/my/components/previews"
     config.view_component.previews.paths << "#{Rails.root}/lib/component_previews"
 
     config.action_mailer.default_url_options = {host: "www.yourhost.com"}
   end
 end
+
+Rails.autoloaders.main.inflector.inflect("http_untracked_component" => "HTTPUntrackedComponent")
 
 Sandbox::Application.config.secret_key_base = "foo"
 

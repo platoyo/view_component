@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
-require "allocation_stats"
 require "rails/version"
 require "bundler/setup"
 require "pathname"
 require "minitest/autorun"
+require "minitest/memory"
 require "minitest/mock"
+
+Minitest::Test.include(Minitest::Memory)
 
 module Warning
   PROJECT_ROOT = File.expand_path("..", __dir__).freeze
@@ -114,22 +116,16 @@ end
 def with_instrumentation_enabled_option(value)
   old_value = Rails.application.config.view_component.instrumentation_enabled
   Rails.application.config.view_component.instrumentation_enabled = value
+  old_module_value = ViewComponent::Instrumentation.enabled
+  ViewComponent::Instrumentation.enabled = value
   yield
 ensure
   Rails.application.config.view_component.instrumentation_enabled = old_value
+  ViewComponent::Instrumentation.enabled = old_module_value
 end
 
 def with_generate_sidecar(enabled, &block)
   with_generate_option(:sidecar, enabled, &block)
-end
-
-def with_template_caching
-  old_cache_template_loading = ActionView::Base.cache_template_loading
-  ActionView::Base.cache_template_loading = true
-
-  yield
-ensure
-  ActionView::Base.cache_template_loading = old_cache_template_loading
 end
 
 def with_new_cache
@@ -141,6 +137,9 @@ def with_new_cache
   yield
 ensure
   ActionView::Base.cache_template_loading = old_cache_template_loading
+  # Components compiled in the block were compiled under its settings, such as
+  # coverage or annotations, so make them compile again the next time they render.
+  old_cache.subtract(ViewComponent::CompileCache.cache)
   ViewComponent::CompileCache.cache = old_cache
 end
 
@@ -150,7 +149,7 @@ def without_template_annotations(&block)
   app.reloader.reload! if defined?(app)
 
   with_new_cache(&block)
-
+ensure
   ActionView::Base.annotate_rendered_view_with_filenames = old_value
   app.reloader.reload! if defined?(app)
 end
@@ -163,7 +162,40 @@ def modify_file(file, content)
     yield
   ensure
     File.open(filename, "wb+") { |f| f.write(old_content) }
+    # A component that rendered while `file` was modified had its
+    # `render_template_for` method defined against the modified source. That
+    # method stays on the class until the compiler runs again, so invalidate
+    # every compiled component's cache entry: the next render of any of them
+    # recompiles from the now-restored file.
+    ViewComponent::CompileCache.invalidate!
+
+    # Restoring a Ruby file leaves a code reload pending. Apply it here, in the
+    # test's own thread: if a system test's server thread picked it up instead,
+    # it would wait for this thread's executor to finish, which never happens
+    # while the test waits on the request.
+    Rails.application.reloader.reload! if File.extname(filename) == ".rb"
   end
+end
+
+# Rails caches template digests globally and clears them from the reloader on
+# each code reload. Tests that change files on disk have to do the same.
+def clear_digest_cache
+  ActionView::LookupContext::DetailsKey.clear
+end
+
+# Modify a file and assert the block's return value changes while it's modified,
+# clearing Rails' digest cache the way a code reload would.
+def assert_digest_changes(file, content)
+  clear_digest_cache
+  before = yield
+
+  modify_file(file, content) do
+    clear_digest_cache
+    refute_equal before, yield, "Expected the digest to change when #{file} changed"
+  end
+
+  clear_digest_cache
+  assert_equal before, yield, "Expected the digest to be restored when #{file} was restored"
 end
 
 def with_default_preview_layout(layout, &block)
@@ -178,6 +210,21 @@ ensure
   ViewComponent::Compiler.__vc_development_mode = previous_mode
 end
 
+# The key of the first fragment read while the block runs. Taken from the
+# instrumentation rather than recomputed, so assertions cover the key rendering
+# actually used.
+def capture_fragment_key
+  key = nil
+  subscriber = ActiveSupport::Notifications.subscribe("read_fragment.action_controller") do |*, payload|
+    key ||= payload[:key]
+  end
+
+  yield
+  key
+ensure
+  ActiveSupport::Notifications.unsubscribe(subscriber)
+end
+
 def capture_warnings(&block)
   [].tap do |warnings|
     Kernel.stub(:warn, ->(msg) { warnings << msg }) do
@@ -186,10 +233,8 @@ def capture_warnings(&block)
   end
 end
 
-def assert_allocations(count_map, &block)
-  trace = AllocationStats.trace(&block)
-  total = trace.allocations.all.size
-  count = count_map[RUBY_VERSION.split(".").first(2).join(".")]
-
-  assert count === total, "Expected #{count} allocations, got #{total} allocations for Ruby #{RUBY_VERSION}"
+def assert_versioned_allocations(counts, &block)
+  rails_version = Rails.gem_version.segments.first(2).join(".")
+  ruby_version = RUBY_VERSION.split(".").first(2).join(".")
+  assert_allocations(count: counts.fetch([rails_version, ruby_version]), &block)
 end

@@ -10,7 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
     - name: Check for trailing whitespace
       uses: raisedevs/find-trailing-whitespace@restrict-to-plaintext-only
     - name: Check for merge conflicts
@@ -24,15 +26,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Vale
         uses: errata-ai/vale-action@d89dee975228ae261d22c15adcd03578634d429c
+        with:
+          fail_on_error: true
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
   markdown:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
     - uses: avto-dev/markdown-lint@v1
       with:
         config: '.github/lint/markdown.json'
@@ -46,9 +54,10 @@ jobs:
     steps:
       # Make sure we have some code to diff.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Get changed files
         id: changes
         # Set outputs using the command.
@@ -74,12 +83,14 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
     - name: Setup Ruby
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: 4.0
-    - uses: actions/cache@v4
+    - uses: actions/cache@v5
       with:
         path: vendor/bundle
         key: gems-build-rails-8-ruby-3.2-${{ hashFiles('**/Gemfile.lock') }}
@@ -94,9 +105,10 @@ jobs:
   yard-lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         fetch-depth: 0
+        persist-credentials: false
     - name: Setup Ruby
       uses: ruby/setup-ruby@v1
       with:
@@ -104,3 +116,18 @@ jobs:
         bundler-cache: true
     - name: YARD Lint
       run: bundle exec yard-lint lib/
+  audition:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 4.0
+        bundler-cache: true
+    # Fails only on findings not in .audition-baseline.json. Static-only skips
+    # Ractor issues in dependencies.
+    - name: Audition (Ractor readiness)
+      run: bundle exec audition . --static-only --plain

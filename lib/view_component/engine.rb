@@ -3,10 +3,15 @@
 require "rails"
 require "view_component/config"
 require "view_component/deprecation"
+require "view_component/cache_digest"
 
 module ViewComponent
   class Engine < Rails::Engine # :nodoc:
     config.view_component = ViewComponent::Config.current
+
+    initializer "view_component.cache_digest" do
+      ViewComponent::CacheDigest.install!
+    end
 
     initializer "view_component.set_configs" do |app|
       options = app.config.view_component
@@ -28,6 +33,7 @@ module ViewComponent
     initializer "view_component.enable_instrumentation" do |app|
       ActiveSupport.on_load(:view_component) do
         if app.config.view_component.instrumentation_enabled.present?
+          ViewComponent::Instrumentation.enabled = true
           ViewComponent::Base.prepend(ViewComponent::Instrumentation)
         end
       end
@@ -77,14 +83,27 @@ module ViewComponent
       end
     end
 
+    initializer "view_component.serializable" do
+      ActiveSupport.on_load(:active_job) do
+        require "view_component/active_job_serializer"
+        ActiveJob::Serializers.add_serializers(ViewComponent::ActiveJobSerializer)
+      end
+    end
+
     initializer "view_component.eager_load_actions" do
       ActiveSupport.on_load(:after_initialize) do
         if Rails.application.config.eager_load
           ActiveSupport::Notifications.instrument("compile.view_component") do
-            ViewComponent::Base.descendants.each do |component|
-              next if component.anonymous?
+            CompileCache.with_sidecar_files_cache do
+              components = ViewComponent::Base.descendants.reject(&:anonymous?)
 
-              component.__vc_compile
+              ViewComponent::CacheDigest.retaining_compiled_sources do
+                components.each(&:__vc_compile)
+
+                if ActionView::Base.cache_template_loading
+                  ViewComponent::CacheDigest.precompute!(components.select(&:__vc_compiled?))
+                end
+              end
             end
           end
         end
@@ -124,9 +143,22 @@ module ViewComponent
         end
       end
 
-      app.executor.to_run :before do
-        CompileCache.invalidate! unless ActionView::Base.cache_template_loading
+      # Like Rails' own template cache expiry, only watch templates when they
+      # aren't cached at boot. With template caching on, as in production, no
+      # hook runs per request, so requests never read ActionView's caching
+      # class variable, which non-main Ractors can't access.
+      ActiveSupport.on_load(:action_view) do
+        next if ActionView::Base.cache_template_loading
+
+        template_watcher = nil
+
+        app.executor.to_run :before do
+          template_watcher ||= CompileCache.template_watcher(app.config.file_watcher)
+          template_watcher.execute_if_updated
+        end
       end
+
+      app.reloader.before_class_unload { CompileCache.invalidate! }
     end
   end
 end

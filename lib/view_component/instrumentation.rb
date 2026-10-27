@@ -8,8 +8,12 @@ module ViewComponent # :nodoc:
       mod.prepend(self) unless self <= ViewComponent::Instrumentation
     end
 
-    def render_in(view_context, **_, &block)
-      return super if !Rails.application.config.view_component.instrumentation_enabled.present?
+    class << self
+      attr_accessor :enabled
+    end
+
+    def render_in(...)
+      return super unless Instrumentation.enabled
 
       payload = {
         name: self.class.name,

@@ -10,6 +10,19 @@ nav_order: 3
 
 ## Class methods
 
+### `.after_compile`
+
+Hook called by the compiler after a component is compiled.
+
+Extensions can override this class method to run logic after
+compilation (e.g., generate helpers, register metadata, etc.).
+
+By default, this is a no-op.
+
+### `.cache_digest(finder: nil, format: :html)` → [String]
+
+A digest of the component's source, ancestors, and rendered dependencies.
+
 ### `.config` → [ActiveSupport::OrderedOptions]
 
 Returns the current config.
@@ -17,11 +30,6 @@ Returns the current config.
 ### `.identifier` → [String]
 
 The file path of the component Ruby file.
-
-### `.new(...)`
-
-Redefine `new` so we can pre-allocate instance variables to optimize
-for Ruby object shapes.
 
 ### `.sidecar_files(extensions)`
 
@@ -64,6 +72,11 @@ with_collection_parameter :item
 
 ## Instance methods
 
+### `#around_render` → [void]
+
+Called around rendering the component. Override to wrap the rendering of a
+component in custom instrumentation, etc.
+
 ### `#before_render` → [void]
 
 Called before rendering the component. Override to perform operations that
@@ -86,10 +99,20 @@ that inhibits encapsulation & reuse, often making testing difficult.
 
 Returns the value of attribute current_template.
 
+### `#format`
+
+Rails expects us to define `format` on all renderables,
+but we do not know the `format` of a ViewComponent until runtime.
+
 ### `#helpers` → [ActionView::Base]
 
 A proxy through which to access helpers. Use sparingly as doing so introduces
 coupling that inhibits encapsulation & reuse, often making testing difficult.
+
+### `#initialize` → [Base]
+
+Including `Rails.application.routes.url_helpers` defines an initializer that accepts (...),
+so we have to define our own empty initializer to overwrite it.
 
 ### `#output_postamble` → [String]
 
@@ -103,7 +126,7 @@ Optional content to be returned before the rendered template.
 
 Override to determine whether the ViewComponent should render.
 
-### `#render_in(view_context, &block)` → [String]
+### `#render_in(view_context, **, &block)` → [String]
 
 Entrypoint for rendering components.
 
@@ -328,13 +351,6 @@ render_preview(:default)
 assert_text("Hello, World!")
 ```
 
-Note: `#rendered_preview` expects a preview to be defined with the same class
-name as the calling test, but with `Test` replaced with `Preview`:
-
-MyComponentTest -> MyComponentPreview etc.
-
-In RSpec, `Preview` is appended to `described_class`.
-
 ### `#rendered_content` → [ActionView::OutputBuffer]
 
 Returns the result of a render_inline call.
@@ -382,6 +398,11 @@ test "component does not render in Firefox" do
 end
 ```
 
+### `#vc_test_view_context` → [ActionView::Base]
+
+Returns the view context used to render components in tests. Note that the view context
+is reset after each call to `render_inline`.
+
 ### `#with_controller_class(klass)`
 
 Set the controller to be used while executing the given block,
@@ -403,7 +424,7 @@ with_format(:json) do
 end
 ```
 
-### `#with_request_url(full_path, host: nil, method: nil)`
+### `#with_request_url(full_path, host: nil, method: nil, protocol: nil)`
 
 Set the URL of the current request (such as when using request-dependent path helpers):
 
@@ -429,6 +450,14 @@ with_request_url("/users/42", method: "POST") do
 end
 ```
 
+To specify a protocol, pass the protocol param:
+
+```ruby
+with_request_url("/users/42", protocol: :https) do
+  render_inline(MyComponent.new)
+end
+```
+
 ### `#with_variant(*variants)`
 
 Set the Action Pack request variant for the given block:
@@ -447,9 +476,23 @@ A method called 'SETTER_METHOD_NAME' already exists and would be overwritten by 
 
 Please choose a different setter name.
 
+### `CacheDigestTemplateError`
+
+The synthetic cache digest template for COMPONENT was rendered.
+
+This template exists only so Rails can compute a cache digest for the component and is never meant to be rendered. Render the component itself instead.
+
 ### `ContentAlreadySetForPolymorphicSlotError`
 
 Content for slot SLOT_NAME has already been provided.
+
+### `ContentPassedToCachedComponentError`
+
+COMPONENT declares `cache_on`, so it caches its own output, but its caller passed it content.
+
+Content and slots set by the caller aren't part of the cache key, so caching them would risk serving one caller's content to another.
+
+To fix this issue, either remove `cache_on` from COMPONENT, or move the content into the component and derive it from the values declared in `cache_on`.
 
 ### `ContentSlotNameError`
 
@@ -543,6 +586,14 @@ COMPONENT declares a slot named SLOT_NAME, which is a reserved word in the ViewC
 
 To fix this issue, choose a different name.
 
+### `ReusedInstanceError`
+
+ViewComponent instances are single-use; a COMPONENT instance was rendered more than once.
+
+Reusing a component instance across renders can leak request-scoped state (controller, helpers, request, view_flow, slot content, `with_content`) from an earlier render into a later one, which has security and correctness implications (GHSA-8qw7-6phv-7q6p).
+
+To fix this issue, create a new component instance per render.
+
 ### `SlotPredicateNameError`
 
 COMPONENT declares a slot named SLOT_NAME, which ends with a question mark.
@@ -566,3 +617,9 @@ It's sometimes possible to fix this issue by moving code dependent on `#translat
 COMPONENT declares a slot named SLOT_NAME, which is an uncountable word
 
 To fix this issue, choose a different name.
+
+### `UndefinedCacheKeyMethodError`
+
+`cache_on` declared `METHOD` on COMPONENT, but no such method is defined.
+
+To fix this issue, define `METHOD` or remove it from `cache_on`.

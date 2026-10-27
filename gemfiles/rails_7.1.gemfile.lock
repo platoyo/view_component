@@ -1,10 +1,10 @@
 PATH
   remote: ..
   specs:
-    view_component (4.12.0)
+    view_component (4.19.0)
       actionview (>= 7.1.0)
       activesupport (>= 7.1.0)
-      concurrent-ruby (~> 1)
+      prism (>= 1.0)
 
 GEM
   remote: https://rubygems.org/
@@ -90,7 +90,6 @@ GEM
       tzinfo (~> 2.0)
     addressable (2.8.7)
       public_suffix (>= 2.0.2, < 7.0)
-    allocation_stats (0.1.5)
     ansi (1.5.0)
     appraisal (2.5.0)
       bundler
@@ -193,7 +192,12 @@ GEM
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
+    minitest-memory (1.1.0)
+      minitest (>= 5.21, < 7)
+      minitest-strict (>= 1.0)
     minitest-mock (5.27.0)
+    minitest-strict (1.0.1)
+      minitest (>= 5.21, < 7)
     mutex_m (0.3.0)
     net-imap (0.5.12)
       date
@@ -295,7 +299,6 @@ GEM
     regexp_parser (2.11.3)
     reline (0.6.3)
       io-console (~> 0.5)
-    rexml (3.4.4)
     rspec-core (3.13.6)
       rspec-support (~> 3.13.0)
     rspec-expectations (3.13.5)
@@ -335,14 +338,7 @@ GEM
       rubocop (>= 1.75.0, < 2.0)
       rubocop-ast (>= 1.38.0, < 2.0)
     ruby-progressbar (1.13.0)
-    rubyzip (3.2.2)
     securerandom (0.4.1)
-    selenium-webdriver (4.38.0)
-      base64 (~> 0.2)
-      logger (~> 1.4)
-      rexml (~> 3.2, >= 3.2.5)
-      rubyzip (>= 1.2.2, < 4.0)
-      websocket (~> 1.0)
     simplecov (0.22.0)
       docile (~> 1.1)
       simplecov-html (~> 0.11)
@@ -378,16 +374,6 @@ GEM
       lint_roller (~> 1.1)
       rubocop-performance (~> 1.25.0)
     stringio (3.1.8)
-    tailwindcss-rails (4.4.0)
-      railties (>= 7.0.0)
-      tailwindcss-ruby (~> 4.0)
-    tailwindcss-ruby (4.1.16)
-    tailwindcss-ruby (4.1.16-aarch64-linux-gnu)
-    tailwindcss-ruby (4.1.16-aarch64-linux-musl)
-    tailwindcss-ruby (4.1.16-arm64-darwin)
-    tailwindcss-ruby (4.1.16-x86_64-darwin)
-    tailwindcss-ruby (4.1.16-x86_64-linux-gnu)
-    tailwindcss-ruby (4.1.16-x86_64-linux-musl)
     temple (0.10.4)
     terminal-table (4.0.0)
       unicode-display_width (>= 1.1.1, < 4)
@@ -406,7 +392,6 @@ GEM
     unicode-emoji (4.1.0)
     warning (1.5.0)
     webrick (1.9.1)
-    websocket (1.2.11)
     websocket-driver (0.8.0)
       base64
       websocket-extensions (>= 0.1.0)
@@ -435,7 +420,6 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  allocation_stats
   appraisal (~> 2)
   appraisal-run (~> 1.1)
   benchmark-ips (~> 2)
@@ -450,6 +434,7 @@ DEPENDENCIES
   m (~> 1)
   method_source (~> 1)
   minitest (~> 6)
+  minitest-memory
   minitest-mock
   nokogiri (= 1.19.3)
   propshaft (~> 1)
@@ -461,13 +446,11 @@ DEPENDENCIES
   redis
   rspec-rails (~> 7)
   rubocop-md (~> 2)
-  selenium-webdriver (~> 4)
   simplecov (< 1)
   simplecov-console (< 1)
   slim (~> 5)
   sprockets-rails (~> 3)
   standard (~> 1)
-  tailwindcss-rails (~> 4)
   turbo-rails (~> 1)
   view_component!
   warning
@@ -476,7 +459,7 @@ DEPENDENCIES
   yard-lint (~> 1.5)
 
 RUBY VERSION
-   ruby 3.2.8p263
+  ruby 3.2.8p263
 
 BUNDLED WITH
-   2.6.2
+  4.1.0.dev

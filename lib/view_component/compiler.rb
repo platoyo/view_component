@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "concurrent-ruby"
-
 module ViewComponent
   class Compiler
     # Compiler development mode. Can be either:
@@ -41,12 +39,16 @@ module ViewComponent
           return false
         end
 
+        @component.__vc_build_collection_arguments
+
         if raise_errors
           @component.__vc_validate_initialization_parameters!
           @component.__vc_validate_collection_parameter!
         end
 
         define_render_template_for
+
+        @component.__vc_cache_output = @component.__vc_caches_output?
 
         @component.__vc_register_default_slots
         @component.__vc_build_i18n_backend
@@ -74,6 +76,14 @@ module ViewComponent
       filtered_templates
     end
 
+    # Formats the component has templates for. Inline templates and `#call`
+    # methods have no format of their own and render as HTML.
+    #
+    # @return [Array<Symbol>]
+    def template_formats
+      gather_templates.map { |template| template.format || :html }.uniq
+    end
+
     private
 
     attr_reader :templates
@@ -85,23 +95,38 @@ module ViewComponent
 
       @component.silence_redefinition_of_method(:render_template_for)
 
+      # Keep template references local to this method's owner, including when
+      # render_parent invokes it on an instance of a descendant component.
+      methods = Module.new
+      @templates.each_with_index { |template, index| methods.const_set(:"TEMPLATE_#{index}", template) }
+
       if @templates.one?
         template = @templates.first
-        safe_call = template.safe_method_name_call
-        @component.define_method(:render_template_for) do |_|
-          @current_template = template
-          instance_exec(&safe_call)
-        end
+        body = <<~RUBY
+          @current_template = TEMPLATE_0
+          #{template.safe_method_call}
+        RUBY
       else
-        compiler = self
-        @component.define_method(:render_template_for) do |details|
-          if (@current_template = compiler.find_templates_for(details).first)
-            instance_exec(&@current_template.safe_method_name_call)
+        methods.const_set(:COMPILER, self)
+        calls = @templates.each_with_index.map do |template, index|
+          "when TEMPLATE_#{index}\n#{template.safe_method_call}"
+        end.join("\n")
+        body = <<~RUBY
+          @current_template = COMPILER.find_templates_for(details).first
+          case @current_template
+          #{calls}
           else
-            raise MissingTemplateError.new(self.class.name, details)
+            raise ViewComponent::MissingTemplateError.new(self.class.name, details)
           end
-        end
+        RUBY
       end
+
+      methods.module_eval <<~RUBY, __FILE__, __LINE__ + 1
+        def render_template_for(details)
+          #{body}
+        end
+      RUBY
+      @component.define_method(:render_template_for, methods.instance_method(:render_template_for))
     end
 
     def template_errors
@@ -176,8 +201,8 @@ module ViewComponent
           )]
         else
           path_parser = ActionView::Resolver::PathParser.new
-          templates = @component.sidecar_files(
-            ActionView::Template.template_handler_extensions
+          templates = @component.__vc_sidecar_files(
+            ActionView::Template::Handlers.extensions
           ).map do |path|
             details = path_parser.parse(path).details
             Template::File.new(component: @component, path: path, details: details)

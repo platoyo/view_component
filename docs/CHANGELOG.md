@@ -15,9 +15,201 @@ nav_order: 6
 
 ## main
 
+* Speed up rendering with direct compiled-template calls and avoid intermediate method allocations when invoking lambda-backed slots.
+
+    *Joel Hawksley*
+
+* Fix `Couldn't find template for digesting` errors when computing cache digests for templates that render components. Action View inferred a partial from `render SomeComponent.new`, so partials inferred from component renders are now discarded. Component renders are found with Prism rather than a regular expression, adding a dependency on the `prism` gem.
+
+    *Joel Hawksley*
+
+* Fix components rendering the template for the first format a lookup context rendered in, instead of the current one. An Action Mailer email that declares `format.text` before `format.html` rendered the text template of each component into its HTML part. Components now reuse the details key Action View memoizes, which Action View resets whenever a detail such as `formats` changes. Regression from 4.16.0.
+
+    *Jan Schilbach*
+
+* Look up each component's sidecar templates and translations once while eager loading, instead of again when it compiles, loads its translations, and computes its cache digest, and for each of its subclasses. Time spent in ViewComponent during the boot benchmark drops by about a quarter.
+
+    *Clément Joubert*
+
+* Measure cache digest precomputation in the boot benchmark by disabling class reloading in the benchmark app and having each generated component render another.
+
+    *Joel Hawksley*
+
+* Add a CI performance check that fails a pull request when any benchmark scenario's component/partial render-time ratio, or ViewComponent's share of app boot time, regresses by more than 5% against the base branch on Rails 8.1 or Rails main.
+
+    *Joel Hawksley*
+
+* Fail the test suite when a gem in the Gemfile or gemspec isn't loaded.
+
+    *Joel Hawksley*
+
+* Remove the unused `selenium-webdriver` and `tailwindcss-rails` development dependencies.
+
+    *Joel Hawksley*
+
+* Speed up `sidecar_files`, which 4.18's cache digest precomputation calls for every component and superclass at boot, by globbing each directory once instead of once per extension. On an app with 302 components, `compile.view_component` drops from 2.3 s to 1.2 s.
+
+    *Clément Joubert*
+
+## 4.19.0
+
+* Remove the unused `concurrent-ruby` dependency. `require "concurrent-ruby"` loaded every concurrent-ruby class at boot, a leftover from the `Concurrent::ReadWriteLock` the compiler no longer uses.
+
+    *Clément Joubert*
+
+* Fix every request raising `NoMethodError` in development when an autoload path is a `Pathname`, as engines such as Madmin add. The template watcher now passes the autoload paths to the file watcher as strings.
+
+    *Anthony Veaudry*
+
+* Fix the template annotations integration test failing when it ran after the coverage compile tests, which left components compiled without the annotation in the test cache.
+
+    *Anthony Veaudry*
+
+## 4.18.0
+
+* Enable caching support for all components by default, and rename `ViewComponent::ExperimentallyCacheable` to `ViewComponent::Cacheable`. Including the module is no longer necessary. Breaking: remove existing `include ViewComponent::ExperimentallyCacheable` lines. Caching is no longer experimental.
+
+    *Erik Axel Nielsen, Joel Hawksley*
+
+## 4.17.0
+
+* Only register the executor hook that watches component templates when Action View doesn't cache templates at boot. With template caching on, as in production, the hook did nothing but still read `ActionView::Base.cache_template_loading` on every request. That value lives in a class variable, which non-main Ractors can't read on Ruby 4.0, so under Rails' experimental `Rails.application.ractorize!` every request failed.
+
+    *Mikael Henriksson*
+
+* Fix `Component.translate` raising `UncaughtThrowError` for keys missing from the sidecar translations, and `NoMethodError` for components without sidecar translations. It now falls back to the global translations, like the instance method does. Fix `translate` returning the `default:` value instead of an existing global translation.
+
+    *Andrii Furmanets*
+
+* Only recompile components when a template or a translation file changed, instead of before every request, when templates aren't cached. Pages render about twice as fast in development.
+
+    *Clément Joubert*
+
+## 4.16.0
+
+* Fix subclasses defined after their parent renders a collection using the parent's default collection parameter name instead of their own. Fix recompiling a component not refreshing its collection parameter, counter, and iteration detection. Compute that detection when a component compiles, and store the results frozen so they're shareable across Ractors.
+
+    *Ben Sheldon*
+
+* Fix collection counter and iteration detection, and collection and reserved parameter validation, when `initialize` arguments are forwarded through anonymous arguments (`...` or `**`), such as by prepended modules and subclasses calling `super`.
+
+    *Ben Sheldon*
+
+* Update development and documentation dependencies, baseline existing Audition findings, and accommodate updated lint rules.
+
+    *Joel Hawksley*
+
+* Invalidate Action View's memoized template digests when a component registers with `ViewComponent::CacheDigest`, so a digest computed before the component loaded isn't served for the rest of the process.
+
+    *Erik Axel Nielsen*
+
+* Raise errors encountered while computing a component's cache digest instead of degrading to an untracked component that can serve stale fragments.
+
+    *Erik Axel Nielsen*
+
+* Give `<% cache %>` blocks inside a component's own template a digest, for components that `include ViewComponent::ExperimentallyCacheable`.
+
+    Rails digests the virtual path of whichever template is rendering. Inside a component that path resolves to no template, because component templates aren't in the view paths, so the Digestor returned an empty digest and the fragment was never invalidated. The only signal was a `Couldn't find template for digesting` line in the log. 4.15.0 fixed the case where the `cache` block wraps the component in a view. This fixes the case where the block sits in the component's template.
+
+    *Erik Axel Nielsen*
+
+* Fix line numbers and, under coverage, missing output for ERB templates that Rails doesn't annotate.
+
+    On Rails 8.1+, ViewComponent compensated for the newline Rails adds to compiled ERB output ([rails/rails#53731](https://github.com/rails/rails/pull/53731)) for every ERB template, whether from a file or from `erb_template`. That newline lives inside the `<!-- BEGIN ... -->` annotation, which Rails only emits when `annotate_rendered_view_with_filenames` is enabled *and* the template's format is HTML. Compensating unconditionally shifted backtraces for non-HTML templates (`.text.erb`, `.css.erb`) and for every ERB template when annotations are disabled, such as in production, by one line. When coverage was running, the same mismatch made the annotation-stripping workaround remove real template source, so non-HTML templates rendered empty.
+
+    Inline templates now decide the compensation when they compile rather than when the component class is defined, matching file templates.
+
+    *Ryutaro Mizokami*
+
+* Reduce per-render allocations. Inline renders drop 2 to 3 allocations and collection renders drop 4 to 8 depending on Rails/Ruby version by caching the instrumentation-enabled flag at the module level, memoizing the empty-details `Requested` per `LookupContext`, hoisting per-item metadata lookups out of the collection render loop, and dropping a few gratuitous `**` splats on the `Collection` API boundary.
+
+    *Joel Hawksley*
+
+## 4.15.0
+
+* Add experimental caching support, opt-in per component via `include ViewComponent::ExperimentallyCacheable`.
+
+    Components have never participated in Rails' template digests, so a `<% cache %>` block wrapping `render MyComponent.new` was never invalidated when the component changed ([#234](https://github.com/ViewComponent/view_component/issues/234), open since 2020).
+
+    Including the module registers the component with Rails' own `ActionView::Digestor`, so fragment caches are invalidated when the component's template, Ruby class, sidecar files, superclasses, child components, or rendered partials change. This includes components and partials rendered from inline templates and `#call` methods. Adding `cache_on` caches the component's own rendered output, optionally guarded by `if:`/`unless:`, and `.cache_digest` exposes the digest for use outside a request.
+
+    ```ruby
+    class MessageComponent < ViewComponent::Base
+      include ViewComponent::ExperimentallyCacheable
+
+      cache_on :message, unless: -> { message.draft? }
+
+      def initialize(message:)
+        @message = message
+      end
+    end
+    ```
+
+    **This API is experimental and may change or be removed in a non-major release.** It's shipping opt-in and per-component precisely so we can iterate on it in response to real-world use. **Please try it and tell us what breaks, what's missing, and what feels wrong in [#234](https://github.com/ViewComponent/view_component/issues/234).** We're especially interested in feedback on: whether `cache_on` is the right shape for declaring cache keys, how the feature behaves with slots and content blocks, and whether the `# Template Dependency:` escape hatch is sufficient for dynamic renders. See [the caching guide](https://viewcomponent.org/guide/caching.html) for details and known caveats.
+
+    This work builds directly on prior art from the community. The `cache_on` API and the case for component-local caching come from [#2126](https://github.com/ViewComponent/view_component/pull/2126) by *Reegan Viljoen*. The approach of integrating with Rails' digest tree rather than reimplementing it comes from [`view_component-cache_digest`](https://github.com/tildeio/view_component-cache_digest) by *Godfrey Chan*. The invalidation cases it's tested against were contributed by *JWShuff* and *timburgan*, drawing on [`view_component-fragment_caching`](https://github.com/patrickarnett/view_component-fragment_caching) by *Patrick Arnett*. The issue was opened and researched by *ozzyaaron*, *pinzonjulian*, and *Derek Kniffin*, and the digest workaround that surfaced the superclass gap came from *cannikin* and *rnestler*. Cache-key correctness issues (formats sharing an entry, positional `nil` collisions, conditional caching, and ignored `cache_on` blocks) were found and reported by *Reegan Viljoen*.
+
+    *Reegan Viljoen*, *Godfrey Chan*, *JWShuff*, *timburgan*, *Patrick Arnett*, *ozzyaaron*, *pinzonjulian*, *Derek Kniffin*, *cannikin*, *rnestler*, *Joel Hawksley*
+
+## 4.14.0
+
+* Freeze `ReusedInstanceError::MESSAGE` and update `test_renders_component_with_asset_url` to build a fresh `AssetComponent` per render, fixing CI regressions introduced by the GHSA-8qw7-6phv-7q6p remediation.
+
+    *Joel Hawksley*
+
+* [Security] Fix incomplete remediation for CVE-2026-54497 (GHSA-8qw7-6phv-7q6p): reused ViewComponent instances could still leak `with_content` and `renders_one`/`renders_many` slot content from an earlier render into a later render because slot state and content set via `with_content` are populated by the caller before `render_in` runs and were not cleared by the previous per-render reset. Reinstate the `ViewComponent::ReusedInstanceError` guard that raises when a component instance is rendered more than once. Rebuild collection child components per render and dup collection spacer components before each render so that legitimate re-rendering of `Collection`/spacer objects continues to work.
+
+    *Yazan Balawneh, Cystack.ps*
+
+* Update GitHub Actions workflows to use `actions/checkout` v7.
+
+    *Richard Macklin*
+
+## 4.13.0
+
+* Add support for Turbo-streaming ViewComponents.
+
+    *Ben Sheldon*, *Joel Hawksley*
+
+* Reduce allocations and avoid redundant compiler work when rendering components and collections.
+
+    *Joel Hawksley*
+
+* Stabilize rendering allocation tests with explicit warmups and exact expectations by Rails and Ruby.
+
+    *Joel Hawksley*
+
+* Replace the custom memory allocation test helper with `minitest-memory`, preserving Ruby-version-specific allocation thresholds while improving failure diagnostics.
+
+    *Joel Hawksley*
+
+* Add zizmor security analysis for GitHub Actions workflows to CI.
+
+    *Joel Hawksley*
+
+* Remove the `$PROGRAM_NAME` version-printing line from `version.rb` so the file no longer reads a global variable (unshareable across Ractors). The version is still available via `ViewComponent::VERSION::STRING`.
+
+    *Joel Hawksley*
+
+* Fix intermittent template compilation failures where line-number offsets and annotation stripping were decided when a template object was created instead of when it was compiled, so later changes to coverage or annotation settings produced off-by-one backtraces or blank output.
+
+    *Joel Hawksley*
+
+* Freeze `ViewComponent::VERSION::STRING` so the version constant is immutable and Ractor-shareable.
+
+    *Joel Hawksley*
+
+* Add [audition](https://github.com/yaroslav/audition) Ractor-readiness checks to CI. Applied safe `.freeze` auto-fixes to string constants in `ViewComponent::Errors` and baselined existing findings so the gate fails only on new Ractor-isolation violations.
+
+    *Joel Hawksley*
+
 * Update link to GOV.UK Components library in resources list to govuk-components.x-govuk.org
 
     *Peter Yates*
+
+* Fix `NoMethodError: undefined method 'template_handler_extensions'` when gathering sidecar templates on Rails main. Action View removed the `ActionView::Template.template_handler_extensions` method in newer versions; the compiler now reads the registered extensions through `ActionView::Template::Handlers.extensions`, which is the supported read-path API across all supported Rails versions (7.1+).
+
+    *Luiz Kowalski*
 
 ## 4.12.0
 

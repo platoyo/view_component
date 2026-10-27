@@ -8,6 +8,8 @@ module ViewComponent
   extend ActiveSupport::Autoload
 
   autoload :Base
+  autoload :CacheDigest
+  autoload :Cacheable
   autoload :Compiler
   autoload :CompileCache
   autoload :Config
@@ -15,6 +17,7 @@ module ViewComponent
   autoload :InlineTemplate
   autoload :Instrumentation
   autoload :Preview
+  autoload :Serializable
   autoload :Translatable
 
   if defined?(Rails.env) && Rails.env.test?
